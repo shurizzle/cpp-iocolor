@@ -1,26 +1,28 @@
 /*
- *           DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE
- *                   Version 2, December 2004
+ *					 DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE
+ *									 Version 2, December 2004
  *
- *           DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE
- *  TERMS AND CONDITIONS FOR COPYING, DISTRIBUTION AND MODIFICATION
+ *					 DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE
+ *	TERMS AND CONDITIONS FOR COPYING, DISTRIBUTION AND MODIFICATION
  *
- *  0. You just DO WHAT THE FUCK YOU WANT TO.
+ *	0. You just DO WHAT THE FUCK YOU WANT TO.
  *********************************************************************/
 
 #ifndef _IOCOLOR_H
 #define _IOCOLOR_H
 
 #include <iostream>
-#include <unistd.h>
+#include <Windows.h>
+#include <stdint.h>
 
 namespace std
 {
 	static
 	bool
-	is_tty (int fd)
+	is_tty (HANDLE fd)
 	{
-		return isatty(fd);
+		return (fd == (HANDLE)STD_OUTPUT_HANDLE ||
+			fd == (HANDLE)STD_ERROR_HANDLE);
 	}
 
 	static
@@ -28,24 +30,77 @@ namespace std
 	is_tty (std::ostream& s)
 	{
 		if (s == std::cout) {
-			return is_tty(STDOUT_FILENO);
+			return true;
 		}
 		else if (s == std::cerr) {
-			return is_tty(STDERR_FILENO);
+			return true;
 		}
 		else {
 			return false;
 		}
 	}
 
+	class Console
+	{
+	public:
+		Console ()
+		{
+			stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
+			stderr_handle = GetStdHandle(STD_ERROR_HANDLE);
+
+			CONSOLE_SCREEN_BUFFER_INFO csbi;
+			GetConsoleScreenBufferInfo(stdout_handle, &csbi);
+			stdout_defaults = csbi.wAttributes;
+			GetConsoleScreenBufferInfo(stderr_handle, &csbi);
+			stderr_defaults = csbi.wAttributes;
+		}
+
+		HANDLE
+		get_handle (std::ostream& s) {
+			if (s == std::cout) {
+				return stdout_handle;
+			}
+			else if (s == std::cerr) {
+				return stderr_handle;
+			}
+			else {
+				return NULL;
+			}
+		}
+
+		WORD
+		get_defaults (std::ostream& s) {
+			return get_defaults(get_handle(s));
+		}
+
+		WORD
+		get_defaults (HANDLE h) {
+			if (h == stdout_handle) {
+				return stdout_defaults;
+			}
+			else if (h == stderr_handle) {
+				return stderr_defaults;
+			}
+			else {
+				return 0;
+			}
+		}
+	private:
+		HANDLE stdout_handle;
+		HANDLE stderr_handle;
+
+		WORD stdout_defaults;
+		WORD stderr_defaults;
+	} console;
+
 	struct color_definition
 	{
-		short   foreground;
-		short   background;
+		short	 foreground;
+		short	 background;
 		uint8_t effects;
 	};
 
-	enum class color : short
+	enum color
 	{
 		black,
 		red,
@@ -56,7 +111,7 @@ namespace std
 		cyan,
 		white,
 
-		none  = -1,
+		none	= -1,
 		reset = -2
 	};
 
@@ -64,33 +119,35 @@ namespace std
 	{
 		none = 0,
 
-		bold      = 1, // 1
+		bold			= 1, // 1
 		underline = 2, // 4
-		blink     = 4, // 5
-		standout  = 8  // 7
+		blink		 = 4, // 5
+		standout	= 8	// 7
 	};
 
-	inline constexpr
+	inline // constexpr
 	effect
-	operator | (enum effect a, enum effect b)
+	operator | (effect a, effect b)
 	{
 		return static_cast<effect>(static_cast<uint8_t>(a) | static_cast<uint8_t>(b));
 	}
 
 	inline
 	color_definition
-	color (enum color fg, enum color bg = color::none, enum effect ef = effect::none)
+	color (enum color fg, enum color bg = color::none, effect ef = effect::none)
 	{
-		return { static_cast<short>(fg),
-		         static_cast<short>(bg),
-		         static_cast<uint8_t>(ef) };
+		color_definition res = { static_cast<short>(fg),
+						 static_cast<short>(bg),
+						 static_cast<uint8_t>(ef) };
+		return res;
 	}
 
 	inline
 	color_definition
 	color (short fg, short bg = -1, uint8_t ef = 0)
 	{
-		return { fg, bg, ef };
+		color_definition res = { fg, bg, ef };
+		return res;
 	}
 
 	inline
@@ -123,7 +180,7 @@ namespace std
 
 	inline
 	color_definition
-	effects (enum effect ef)
+	effects (effect ef)
 	{
 		return color(color::none, color::none, ef);
 	}
@@ -144,41 +201,94 @@ operator << (std::ostream& o, std::color_definition descriptor)
 		return o;
 	}
 
+	HANDLE hT = std::console.get_handle(o);
+	WORD wAttributes;
+	{
+		CONSOLE_SCREEN_BUFFER_INFO csbi;
+		GetConsoleScreenBufferInfo(hT, &csbi);
+		wAttributes = csbi.wAttributes;
+	}
+	WORD _wAttributes = wAttributes;
+
 	if (descriptor.effects != 0) {
 		if (descriptor.effects & static_cast<uint8_t>(std::effect::bold)) {
-			o << "\033[1m";
+			wAttributes |= FOREGROUND_INTENSITY;
 		}
 
 		if (descriptor.effects & static_cast<uint8_t>(std::effect::underline)) {
-			o << "\033[4m";
+			wAttributes |= COMMON_LVB_UNDERSCORE;
 		}
 
 		if (descriptor.effects & static_cast<uint8_t>(std::effect::blink)) {
-			o << "\033[5m";
+			wAttributes |= BACKGROUND_INTENSITY;
 		}
 
 		if (descriptor.effects & static_cast<uint8_t>(std::effect::standout)) {
-			o << "\033[7m";
+			wAttributes |= COMMON_LVB_REVERSE_VIDEO;
 		}
 	}
 
 	if (descriptor.foreground != -1) {
 		if (descriptor.foreground < 8) {
-			o << "\033[" << descriptor.foreground + 30 << "m";
-		}
-		else {
-			o << "\033[38;5;" << descriptor.foreground << "m";
+			wAttributes &= 0xfff8;
+			switch (descriptor.foreground)
+			{
+			case 1:
+				wAttributes |= FOREGROUND_RED;
+			break;
+			case 2:
+				wAttributes |= FOREGROUND_GREEN;
+			break;
+			case 3:
+				wAttributes |= 0x0006;
+			break;
+			case 4:
+				wAttributes |= FOREGROUND_BLUE;
+			break;
+			case 5:
+				wAttributes |= 0x0005;
+			break;
+			case 6:
+				wAttributes |= 0x0003;
+			break;
+			case 7:
+				wAttributes |= 0x0007;
+			break;
+			}
 		}
 	}
 
 	if (descriptor.background != -1) {
 		if (descriptor.background < 8) {
-			o << "\033[" << descriptor.background + 40 << "m";
-		}
-		else {
-			o << "\033[48;5;" << descriptor.background << "m";
+			wAttributes &= 0xff8f;
+			switch (descriptor.background)
+			{
+			case 1:
+				wAttributes |= BACKGROUND_RED;
+			break;
+			case 2:
+				wAttributes |= BACKGROUND_GREEN;
+			break;
+			case 3:
+				wAttributes |= 0x0060;
+			break;
+			case 4:
+				wAttributes |= BACKGROUND_BLUE;
+			break;
+			case 5:
+				wAttributes |= 0x0050;
+			break;
+			case 6:
+				wAttributes |= 0x0030;
+			break;
+			case 7:
+				wAttributes |= 0x0070;
+			break;
+			}
 		}
 	}
+
+	SetConsoleTextAttribute(hT, wAttributes);
 
 	return o;
 }
@@ -187,8 +297,13 @@ static
 std::ostream&
 operator << (std::ostream& o, enum std::color c)
 {
+	if (!is_tty(o)) {
+		return o;
+	}
+
 	if (c == std::color::reset) {
-		o << "\033[0m";
+		HANDLE hT = std::console.get_handle(o);
+		SetConsoleTextAttribute(hT, std::console.get_defaults(hT));
 	}
 	else {
 		o << std::foreground(c);
@@ -199,10 +314,15 @@ operator << (std::ostream& o, enum std::color c)
 
 static
 std::ostream&
-operator << (std::ostream& o, enum std::effect ef)
+operator << (std::ostream& o, std::effect ef)
 {
+	if (!is_tty(o)) {
+		return o;
+	}
+
 	if (ef == std::effect::none) {
-		o << "\033[0m";
+		HANDLE hT = std::console.get_handle(o);
+		SetConsoleTextAttribute(hT, std::console.get_defaults(hT));
 	}
 	else {
 		o << std::effects(ef);
