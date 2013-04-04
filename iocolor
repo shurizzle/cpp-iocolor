@@ -40,21 +40,29 @@ namespace std
 		}
 	}
 
-	class Console
-	{
+	class console {
+		class _init {
+		public:
+			_init () {
+				::std::console::stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
+				::std::console::stderr_handle = GetStdHandle(STD_ERROR_HANDLE);
+
+				CONSOLE_SCREEN_BUFFER_INFO csbi;
+				GetConsoleScreenBufferInfo(::std::console::stdout_handle, &csbi);
+				::std::console::stdout_defaults = csbi.wAttributes;
+				GetConsoleScreenBufferInfo(::std::console::stderr_handle, &csbi);
+				::std::console::stderr_defaults = csbi.wAttributes;
+			}
+		};
+
+		static HANDLE stdout_handle;
+		static HANDLE stderr_handle;
+		static WORD stdout_defaults;
+		static WORD stderr_defaults;
+		static _init _initializer;
+
 	public:
-		Console ()
-		{
-			stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
-			stderr_handle = GetStdHandle(STD_ERROR_HANDLE);
-
-			CONSOLE_SCREEN_BUFFER_INFO csbi;
-			GetConsoleScreenBufferInfo(stdout_handle, &csbi);
-			stdout_defaults = csbi.wAttributes;
-			GetConsoleScreenBufferInfo(stderr_handle, &csbi);
-			stderr_defaults = csbi.wAttributes;
-		}
-
+		static
 		HANDLE
 		get_handle (std::ostream& s) {
 			if (s == std::cout) {
@@ -68,11 +76,13 @@ namespace std
 			}
 		}
 
+		static
 		WORD
 		get_defaults (std::ostream& s) {
 			return get_defaults(get_handle(s));
 		}
 
+		static
 		WORD
 		get_defaults (HANDLE h) {
 			if (h == stdout_handle) {
@@ -85,13 +95,7 @@ namespace std
 				return 0;
 			}
 		}
-	private:
-		HANDLE stdout_handle;
-		HANDLE stderr_handle;
-
-		WORD stdout_defaults;
-		WORD stderr_defaults;
-	} console;
+	};
 
 	struct color_definition
 	{
@@ -193,6 +197,12 @@ namespace std
 	}
 }
 
+HANDLE std::console::stdout_handle;
+HANDLE std::console::stderr_handle;
+WORD std::console::stdout_defaults;
+WORD std::console::stderr_defaults;
+std::console::_init std::console::_initializer;
+
 static
 std::ostream&
 operator << (std::ostream& o, std::color_definition descriptor)
@@ -201,7 +211,7 @@ operator << (std::ostream& o, std::color_definition descriptor)
 		return o;
 	}
 
-	HANDLE hT = std::console.get_handle(o);
+	HANDLE hT = std::console::get_handle(o);
 	WORD wAttributes;
 	{
 		CONSOLE_SCREEN_BUFFER_INFO csbi;
@@ -302,8 +312,8 @@ operator << (std::ostream& o, enum std::color c)
 	}
 
 	if (c == std::color::reset) {
-		HANDLE hT = std::console.get_handle(o);
-		SetConsoleTextAttribute(hT, std::console.get_defaults(hT));
+		HANDLE hT = std::console::get_handle(o);
+		SetConsoleTextAttribute(hT, std::console::get_defaults(hT));
 	}
 	else {
 		o << std::foreground(c);
@@ -321,8 +331,8 @@ operator << (std::ostream& o, std::effect ef)
 	}
 
 	if (ef == std::effect::none) {
-		HANDLE hT = std::console.get_handle(o);
-		SetConsoleTextAttribute(hT, std::console.get_defaults(hT));
+		HANDLE hT = std::console::get_handle(o);
+		SetConsoleTextAttribute(hT, std::console::get_defaults(hT));
 	}
 	else {
 		o << std::effects(ef);
